@@ -16,7 +16,7 @@ final class AgentService {
            let m = AnthropicModel(rawValue: raw) {
             return m
         }
-        return .sonnet46
+        return .opus48
     }() {
         didSet { UserDefaults.standard.set(model.rawValue, forKey: "agentModel") }
     }

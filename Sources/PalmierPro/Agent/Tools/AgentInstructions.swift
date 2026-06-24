@@ -141,4 +141,70 @@ enum AgentInstructions {
         - When the user is vague about aesthetic direction, ask one focused question instead \
           of guessing.
         """
+
+    /// Appended (terminal agent only) on top of `serverInstructions`: how to drive the local
+    /// `q` generator over HTTP (image / video / text). q is the user's own generator — prefer it
+    /// over the credit-gated generate_* MCP tools, especially when get_timeline's canGenerate is false.
+    static let qInstructions: String = """
+
+        # Q — the user's local AI generator: IMAGE, VIDEO, and TEXT (drive it with Bash + curl)
+        q is a local service exposing three generators behind one HTTP API. It is NOT an MCP tool — \
+        you call it yourself with Bash (curl). Prefer q over the credit-gated generate_image / \
+        generate_video MCP tools, and ALWAYS use q when get_timeline reports canGenerate=false \
+        (Palmier's own generation is then unavailable). It speaks familiar API shapes: images and \
+        text are OpenAI-compatible, text is also Anthropic-compatible, video is Dreamina/Seedance.
+
+        - Base URL: http://localhost:3001 . Every request needs the header \
+          `Authorization: Bearer aether` (the local key; matches q's config auth-key).
+        - Health-check before a batch: \
+          `curl -fsS -H "Authorization: Bearer aether" http://localhost:3001/api/dreamina/pool`. \
+          If curl can't connect, q is down — tell the user to start it (open Docker Desktop, then \
+          Run "Q" in the launcher, or `docker compose up -d` in ~/code/q) and stop; don't retry blindly.
+        - Models list: `GET /v1/models`. Onto the timeline: pass any image/video URL to the \
+          import_media MCP tool as source.url (Palmier downloads it → placeholder mediaRef), then \
+          add_clips once it resolves in get_media. Result URLs are short-lived — import promptly.
+
+        ## Images — OpenAI-compatible (model "gpt-image-2")
+        - Synchronous (blocks ~5–30 s; best for stills you'll use right away):
+            curl -s -X POST http://localhost:3001/v1/images/generations \\
+              -H "Authorization: Bearer aether" -H "Content-Type: application/json" \\
+              -d '{"prompt":"watercolor of a quiet library at golden hour","model":"gpt-image-2","size":"1024x1024"}'
+          → {"data":[{"url":"…","revised_prompt":"…"}]}
+        - Edit an image: POST /v1/images/edits (multipart: prompt, model=gpt-image-2, image=@<path>, size).
+        - Queued variant (survives restarts): POST /api/image-tasks/generations (JSON: client_task_id, \
+          prompt, model=gpt-image-2, size) → poll GET /api/image-tasks?ids=<id> → success → \
+          task.data=[{url, revised_prompt?}].
+        - Palmier's flow is stills-first: generate a still here, then use it as a video's \
+          startFrameMediaRef, or import it straight to the timeline.
+
+        ## Video — Dreamina / Seedance (queued; ~1–10 min). POST multipart /api/video-tasks/generations:
+          • client_task_id — required; unique string (mint with `uuidgen`).
+          • prompt — required; 8–20 words, camera movement + subject action + audio.
+          • model — "fast" (Seedance 2.0 Fast 720p, default) | "pro_720p" | "pro_1080p".
+          • duration_s — integer 4–15 (default 5).
+          • aspect_ratio — "16:9" (default) | "9:16" | "1:1" | "3:4" | "4:3" | "21:9".
+          • frame=@<path> — up to 9 reference images (repeat per image); video=@<path> — up to 4; \
+            mode="first_last" = exactly 2 frames (start + end). Returns {"id":"<id>","status":"queued"}.
+            T=$(uuidgen)
+            curl -s -X POST http://localhost:3001/api/video-tasks/generations \\
+              -H "Authorization: Bearer aether" -F "client_task_id=$T" \\
+              -F "prompt=slow dolly-in on a quiet library at golden hour" \\
+              -F "model=fast" -F "duration_s=5" -F "aspect_ratio=16:9"
+        - Poll every 5–10 s (faster buys nothing): \
+          `curl -s "http://localhost:3001/api/video-tasks?ids=$T" -H "Authorization: Bearer aether"` \
+          → items[].status queued|running|success|error; on success video_url is set, on error read .error.
+        - To use a Palmier asset as a reference, get its on-disk path from inspect_media/get_media \
+          and pass it as frame=@<path>.
+
+        ## Text — OpenAI- and Anthropic-compatible (for writing prompts, brainstorming, naming)
+        - OpenAI chat: POST /v1/chat/completions \
+          `{"model":"auto","stream":false,"messages":[{"role":"user","content":"…"}]}` \
+          (replay the full messages list each call). Also POST /v1/responses (OpenAI Responses shape).
+        - Anthropic Messages: POST /v1/messages with a Claude-shaped body.
+        - Reach for this only when you need a separate LLM (e.g. expand a logline into shot prompts); \
+          for your own reasoning, just think directly.
+
+        Generation costs time/credits: propose prompt + model (+ duration for video), then fire. If a \
+        video task returns error (e.g. empty Dreamina account pool), tell the user — don't silently retry.
+        """
 }

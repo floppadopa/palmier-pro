@@ -10,7 +10,7 @@ enum ClaudeCodeTerminalCommand {
         [
             "--mcp-config", mcpConfigJSON,
             "--strict-mcp-config",
-            "--append-system-prompt", AgentInstructions.serverInstructions,
+            "--append-system-prompt", AgentInstructions.serverInstructions + "\n" + AgentInstructions.qInstructions,
             "--dangerously-skip-permissions",
             "--model", model,
         ]
