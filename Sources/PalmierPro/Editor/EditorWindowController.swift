@@ -1,4 +1,5 @@
 import AppKit
+import SwiftTerm
 
 /// Window controller that handles keyboard shortcuts via the responder chain.
 /// Forwards actions to the EditorViewModel owned by VideoProject.
@@ -36,8 +37,9 @@ final class EditorWindowController: NSWindowController {
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
-        // Don't intercept keys when a text field has focus
-        if isTextInputFocused {
+        // Don't intercept keys when a text field — or the Agent terminal — has focus,
+        // so the user can type normally there. Shortcuts resume once focus moves away.
+        if isTextInputFocused || isAgentTerminalFocused {
             return false
         }
 
@@ -180,6 +182,20 @@ final class EditorWindowController: NSWindowController {
         return false
     }
 
+    /// True when the embedded Claude Code terminal owns keyboard focus.
+    private var isAgentTerminalFocused: Bool {
+        isTerminalView(window?.firstResponder as? NSView)
+    }
+
+    private func isTerminalView(_ view: NSView?) -> Bool {
+        var current = view
+        while let v = current {
+            if v is TerminalView { return true }
+            current = v.superview
+        }
+        return false
+    }
+
     private func handlePanelClick(hitView: NSView?) {
         var view = hitView
         while let v = view {
@@ -195,8 +211,9 @@ final class EditorWindowController: NSWindowController {
 
     /// Clear stale first-responder focus before the click is dispatched.
     private func resignStaleFocus(hitView: NSView?) {
-        // Don't disturb a deliberate click into a text input.
+        // Don't disturb a deliberate click into a text input or the Agent terminal.
         if hitView is NSTextView || hitView is NSTextField { return }
+        if isTerminalView(hitView) { return }
         guard let responder = window?.firstResponder,
               let view = responder as? NSView, view !== window?.contentView else { return }
         window?.makeFirstResponder(nil)
